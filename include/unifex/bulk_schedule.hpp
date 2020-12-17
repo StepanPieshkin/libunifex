@@ -25,6 +25,7 @@
 #include <unifex/execution_policy.hpp>
 #include <unifex/get_stop_token.hpp>
 #include <unifex/bind_back.hpp>
+#include <unifex/get_bulk_controller.hpp>
 
 #include <unifex/detail/prologue.hpp>
 
@@ -57,7 +58,8 @@ public:
         using policy_t = decltype(get_execution_policy(receiver_));
         auto stop_token = get_stop_token(receiver_);
         const bool stop_possible = !is_stop_never_possible_v<decltype(stop_token)> && stop_token.stop_possible();
-
+        using bulk_controller_t = get_bulk_controller_result_t<Receiver>;
+        bulk_controller_t bulk_controller = get_bulk_controller(receiver_);
         if(stop_possible) {
             for (Integral chunk_start(0); chunk_start < count_; chunk_start += bulk_cancellation_chunk_size) {
                 if(stop_token.stop_requested()) {
@@ -65,6 +67,9 @@ public:
                     return;
                 }
                 Integral chunk_end = std::min(chunk_start + static_cast<Integral>(bulk_cancellation_chunk_size), count_);
+                if constexpr (!std::is_same_v<bulk_controller_t, no_controller>) {
+                    bulk_controller.element_start(chunk_end - chunk_start);
+                }
                 if constexpr (is_one_of_v<policy_t, unsequenced_policy, parallel_unsequenced_policy>) {
 UNIFEX_DIAGNOSTIC_PUSH
 
@@ -94,6 +99,9 @@ UNIFEX_DIAGNOSTIC_POP
                 }
             }
         } else {
+            if constexpr (!std::is_same_v<bulk_controller_t, no_controller>) {
+                bulk_controller.element_start(count_);
+            }
             if constexpr (is_one_of_v<policy_t, unsequenced_policy, parallel_unsequenced_policy>) {
 UNIFEX_DIAGNOSTIC_PUSH
 

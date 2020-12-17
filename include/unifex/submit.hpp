@@ -53,6 +53,11 @@ class _op<Sender, Receiver>::type {
   struct wrapped_receiver {
     type* op_;
 
+    template <typename... Values>
+    void set_next(Values&&... values) & noexcept {
+      unifex::set_next(get_receiver(), (Values &&) values...);
+    }
+
     template(typename... Values)
       (requires receiver_of<Receiver, Values...>)
     void set_value(Values&&... values) && noexcept {
@@ -87,12 +92,12 @@ class _op<Sender, Receiver>::type {
       return op_->receiver_;
     }
 
-    template(typename CPO)
+    template(typename CPO, typename... Args)
         (requires is_receiver_query_cpo_v<CPO>)
-    friend auto tag_invoke(CPO cpo, const wrapped_receiver& r) noexcept(
-        is_nothrow_callable_v<CPO, const Receiver&>)
-        -> callable_result_t<CPO, const Receiver&> {
-      return std::move(cpo)(std::as_const(r.get_receiver()));
+    friend auto tag_invoke(CPO cpo, const wrapped_receiver& r, Args&&... args) noexcept(
+        is_nothrow_callable_v<CPO, const Receiver&, Args...>)
+        -> callable_result_t<CPO, const Receiver&, Args...> {
+      return std::move(cpo)(std::as_const(r.get_receiver()), (Args &&)args...);
     }
 
     template <typename Func>

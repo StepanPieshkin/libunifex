@@ -114,6 +114,58 @@ namespace unifex
     template <typename...> class Inner>
   using type_list_nested_apply_t = typename ListOfLists::template apply<
     detail::type_list_nested_apply_impl<Outer, Inner>::template apply>;
+
+  template <class T, class U>
+  struct flatten_type_lists_impl;
+
+  template <
+      template <typename...> class OuterList,
+      template <typename...> class InnerList,
+      typename... Ts,
+      typename... Heads,
+      typename... Tail>
+  struct flatten_type_lists_impl<
+      type_list<Ts...>,
+      OuterList<InnerList<Heads...>, Tail...>> {
+    using type =
+        typename flatten_type_lists_impl<
+            type_list<Ts...>,
+            type_list<Heads..., Tail...>>::type;
+  };
+
+  template <
+      template <typename...> class List,
+      class... Ts,
+      class Head,
+      class... Tail>
+  struct flatten_type_lists_impl<type_list<Ts...>, List<Head, Tail...>> {
+    using type =
+        typename flatten_type_lists_impl<
+            type_list<Ts..., Head>,
+            type_list<Tail...>>::type;
+  };
+
+  template <template <typename...> class List, class... Ts>
+  struct flatten_type_lists_impl<type_list<Ts...>, List<>> {
+    using type =
+        type_list<Ts...>;
+  };
+
+  template <typename... Ts>
+  using flatten_type_lists_t =
+      typename flatten_type_lists_impl<type_list<>, type_list<Ts...>>::type;
+
+  template <class... Ts>
+  using all_void_type_lists_impl =
+      std::conjunction<std::is_void<Ts>...>;
+
+  template <class... Ts>
+  using all_void_type_lists =
+      typename flatten_type_lists_t<Ts...>::template apply<all_void_type_lists_impl>;
+
+  template <class... Ts>
+  inline constexpr bool all_void_type_lists_v =
+      all_void_type_lists<Ts...>::value;
 } // namespace unifex
 
 #include <unifex/detail/epilogue.hpp>

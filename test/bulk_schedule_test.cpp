@@ -20,6 +20,10 @@
 #include <unifex/bulk_transform.hpp>
 #include <unifex/bulk_join.hpp>
 #include <unifex/let_with_stop_source.hpp>
+#include <unifex/static_thread_pool.hpp>
+#include <unifex/bulk_substitute.hpp>
+#include <unifex/just.hpp>
+#include <unifex/via.hpp>
 
 #include <gtest/gtest.h>
 
@@ -101,6 +105,10 @@ TEST(bulk, Pipeable) {
             // Reverse indices
             return count - 1 - index;
         }, unifex::par_unseq)
+      | unifex::bulk_substitute(
+        [&](std::size_t & index) noexcept {
+            return unifex::via(unifex::schedule(sched), unifex::just(index));
+        })
       | unifex::bulk_transform(
         [&](std::size_t index) noexcept {
             output[index] = static_cast<int>(index);
@@ -110,5 +118,161 @@ TEST(bulk, Pipeable) {
 
     for (std::size_t i = 0; i < count; ++i) {
         EXPECT_EQ(i, output[i]);
+    }
+}
+
+TEST(bulk, bulk_substitute) {
+    unifex::static_thread_pool ctx;
+    auto sched = ctx.get_scheduler();
+    
+    const std::size_t count = 1000;
+    
+    std::vector<std::size_t> output(count);
+    
+    unifex::sync_wait(
+        unifex::bulk_join(
+            unifex::bulk_transform(
+                unifex::bulk_substitute(
+                    unifex::bulk_schedule(sched, count),
+                    [&](std::size_t& index) noexcept {
+                        return unifex::via(
+                            unifex::schedule(sched),
+                            unifex::just(count - 1 - index)
+                        );
+                    }
+                ),
+                [&](std::size_t index) noexcept {
+                    output[index] = index;
+                },
+                unifex::par_unseq
+            )
+        )
+    );
+    
+    for (std::size_t i = 0; i < count; ++i) {
+      EXPECT_EQ(i, output[i]);
+    }
+}
+
+TEST(bulk, bulk_of_bulks) {
+    unifex::static_thread_pool ctx;
+    auto sched = ctx.get_scheduler();
+    
+    const std::size_t count = 1000;
+    const std::size_t chunkSize = 100;
+    
+    std::vector<std::size_t> output(count);
+    
+    unifex::sync_wait(
+        unifex::bulk_join(
+            unifex::bulk_substitute(
+                unifex::bulk_schedule(sched, count / chunkSize),
+                [&](std::size_t& chunk) noexcept {
+                    return unifex::bulk_transform(
+                        unifex::bulk_schedule(sched, chunkSize),
+                        [&](std::size_t index) noexcept {
+                            const std::size_t realIndex = chunk * chunkSize + index;
+                            output[realIndex] = realIndex;
+                        },
+                        unifex::par_unseq
+                    );
+                }
+            )
+        )
+    );
+    
+    for (std::size_t i = 0; i < count; ++i) {
+      EXPECT_EQ(i, output[i]);
+    }
+}
+
+TEST(bulk, bulk_substitute_cancellation) {
+    unifex::single_thread_context ctx;
+    auto sched = ctx.get_scheduler();
+
+    const std::size_t count = 1000;
+
+    std::vector<std::size_t> output(count, 0);
+    // Cancel after two chunks
+    // For the serial implementation this will stop the third chunk onwards from
+    // being dispatched.
+    const std::size_t compare_index = unifex::bulk_cancellation_chunk_size * 2 - 1;
+
+    unifex::sync_wait(
+        unifex::let_with_stop_source([&](unifex::inplace_stop_source& stopSource) {
+            return unifex::bulk_join(
+                unifex::bulk_transform(
+                    unifex::bulk_substitute(
+                        unifex::bulk_transform(
+                            unifex::bulk_schedule(sched, count),
+                            [&](std::size_t index) noexcept {
+                                // Stop after second chunk
+                                if (index == compare_index) {
+                                    stopSource.request_stop();
+                                }
+                                return index;
+                            },
+                            unifex::seq
+                        ),
+                        [&](std::size_t& index) noexcept {
+                            return unifex::via(
+                                unifex::schedule(sched),
+                                unifex::just(index)
+                            );
+                        }
+                    ),
+                    [&](std::size_t index) noexcept {
+                        output[index] = index;
+                    },
+                    unifex::seq
+                )
+            );
+        })
+    );
+
+    // Since we have used the single thread scheduler, all sub-scheduled work should have been canceled
+    for (std::size_t i = 0; i < count; ++i) {
+        EXPECT_EQ(0, output[i]);
+    }
+
+    unifex::static_thread_pool tpCtx;
+    auto tp = tpCtx.get_scheduler();
+
+    unifex::sync_wait(unifex::let_with_stop_source(
+        [&](unifex::inplace_stop_source& stopSource) {
+            return unifex::bulk_join(
+                unifex::bulk_transform(
+                    unifex::bulk_substitute(
+                        unifex::bulk_transform(
+                            unifex::bulk_schedule(tp, count),
+                            [&](std::size_t index) noexcept {
+                                // Stop after second chunk
+                                if (index == compare_index) {
+                                    stopSource.request_stop();
+                                }
+                                return index;
+                            },
+                            unifex::par_unseq
+                        ),
+                        [&](std::size_t& index) noexcept {
+                            return unifex::via(
+                                unifex::schedule(sched),
+                                unifex::just(index)
+                            );
+                        }
+                    ),
+                    [&](std::size_t index) noexcept {
+                        output[index] = index;
+                    },
+                    unifex::par_unseq
+                )
+            );
+        })
+    );
+
+    // Since we have used the thread pool scheduler, we can not predict how many sub-scheduled work were canceled,
+    // so just check that it was stopped in time
+    for (std::size_t i = compare_index + 1; i < count; ++i) {
+        EXPECT_EQ(0, output[i]);
     }
 }

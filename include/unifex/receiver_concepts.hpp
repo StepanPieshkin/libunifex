@@ -160,12 +160,77 @@ namespace _rec_cpo {
       return static_cast<Receiver&&>(r).set_done();
     }
   } set_done{};
+
+  inline const struct _set_next_error_fn {
+  private:
+    template <typename Receiver, typename Error>
+    using set_next_error_member_result_t =
+      decltype(UNIFEX_DECLVAL(Receiver&).set_next_error(UNIFEX_DECLVAL(Error)));
+    template <typename Receiver, typename Error>
+    using _result_t =
+      typename conditional_t<
+        tag_invocable<_set_next_error_fn, Receiver&, Error>,
+        meta_tag_invoke_result<_set_next_error_fn>,
+        meta_quote2<set_next_error_member_result_t>>::template apply<Receiver, Error>;
+  public:
+    template(typename Receiver, typename Error)
+      (requires tag_invocable<_set_next_error_fn, Receiver, Error>)
+    auto operator()(Receiver& r, Error&& error) const
+        noexcept(
+            is_nothrow_tag_invocable_v<_set_next_error_fn, Receiver, Error>)
+        -> _result_t<Receiver, Error> {
+      return unifex::tag_invoke(
+          _set_next_error_fn{}, r, (Error &&)error);
+    }
+    template(typename Receiver, typename Error)
+      (requires (!tag_invocable<_set_next_error_fn, Receiver&, Error>))
+    auto operator()(Receiver& r, Error&& error) const
+        noexcept(noexcept(
+            r.set_next_error((Error &&)error)))
+        -> _result_t<Receiver, Error> {
+      return r.set_next_error((Error &&)error);
+    }
+  } set_next_error{};
+
+  inline const struct _set_next_done_fn {
+  private:
+    template <typename Receiver>
+    using set_next_done_member_result_t =
+        decltype(UNIFEX_DECLVAL(Receiver&).set_next_done());
+    template <typename Receiver>
+    using _result_t = typename conditional_t<
+        tag_invocable<_set_next_done_fn, Receiver>,
+        meta_tag_invoke_result<_set_next_done_fn>,
+        meta_quote1<set_next_done_member_result_t>>::template apply<Receiver>;
+
+  public:
+    template(typename Receiver)(
+        requires tag_invocable<_set_next_done_fn, Receiver>) auto
+    operator()(Receiver& r) const noexcept -> _result_t<Receiver> {
+      static_assert(
+          is_nothrow_tag_invocable_v<_set_next_done_fn, Receiver>,
+          "set_next_done() invocation is required to be noexcept.");
+      static_assert(
+          std::is_void_v<tag_invoke_result_t<_set_next_done_fn, Receiver>>);
+      return unifex::tag_invoke(_set_next_done_fn{}, r);
+    }
+    template(typename Receiver)(
+        requires(!tag_invocable<_set_next_done_fn, Receiver>)) auto
+    operator()(Receiver& r) const noexcept -> _result_t<Receiver> {
+      static_assert(
+          noexcept(r.set_next_done()),
+          "receiver.set_next_done() method must be nothrow invocable");
+      return r.set_next_done();
+    }
+  } set_next_done{};
 } // namespace _rec_cpo
 
 using _rec_cpo::set_value;
 using _rec_cpo::set_next;
 using _rec_cpo::set_error;
 using _rec_cpo::set_done;
+using _rec_cpo::set_next_error;
+using _rec_cpo::set_next_done;
 
 template <typename T>
 inline constexpr bool is_receiver_cpo_v = is_one_of_v<
@@ -173,7 +238,9 @@ inline constexpr bool is_receiver_cpo_v = is_one_of_v<
     _rec_cpo::_set_value_fn,
     _rec_cpo::_set_next_fn,
     _rec_cpo::_set_error_fn,
-    _rec_cpo::_set_done_fn>;
+    _rec_cpo::_set_done_fn,
+    _rec_cpo::_set_next_error_fn,
+    _rec_cpo::_set_next_done_fn>;
 
 
 // HACK: Approximation for CPOs that should be forwarded through receivers
@@ -185,6 +252,8 @@ inline constexpr bool is_receiver_query_cpo_v = !is_one_of_v<
     _rec_cpo::_set_next_fn,
     _rec_cpo::_set_error_fn,
     _rec_cpo::_set_done_fn,
+    _rec_cpo::_set_next_error_fn,
+    _rec_cpo::_set_next_done_fn,
     _connect_cpo::_fn>;
 
 template <typename T>

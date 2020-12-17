@@ -85,6 +85,16 @@ public:
         unifex::set_done(std::move(receiver_));
     }
 
+    template(typename Error)
+        (requires receiver<Receiver, Error>)
+    void set_next_error(Error&& error) noexcept {
+        unifex::set_next_error(receiver_, static_cast<Error &&>(error));
+    }
+
+    void set_next_done() noexcept {
+        unifex::set_next_done(receiver_);
+    }
+
     friend auto tag_invoke(tag_t<get_execution_policy>, const type& r) noexcept {
         using receiver_policy = decltype(get_execution_policy(r.receiver_));
         constexpr bool allowUnsequenced =
@@ -105,14 +115,14 @@ public:
         }
     }
 
-    template(typename CPO, typename Self)
+    template(typename CPO, typename Self, typename... Args)
         (requires
             is_receiver_query_cpo_v<CPO> AND
             same_as<Self, type>)
-    friend auto tag_invoke(CPO cpo, const Self& self)
-        noexcept(is_nothrow_callable_v<CPO, const Receiver&>)
-        -> callable_result_t<CPO, const Receiver&> {
-        return cpo(self.receiver_);
+    friend auto tag_invoke(CPO cpo, const Self& self, Args&&... args)
+        noexcept(is_nothrow_callable_v<CPO, const Receiver&, Args...>)
+        -> callable_result_t<CPO, const Receiver&, Args...> {
+        return cpo(self.receiver_, static_cast<Args&&>(args)...);
     }
 
 private:
