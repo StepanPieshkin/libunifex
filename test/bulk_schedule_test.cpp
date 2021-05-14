@@ -107,7 +107,7 @@ TEST(bulk, Pipeable) {
         }, unifex::par_unseq)
       | unifex::bulk_substitute(
         [&](std::size_t & index) noexcept {
-            return unifex::via(unifex::schedule(sched), unifex::just(index));
+            return unifex::via(sched, unifex::just(index));
         }, unifex::par_unseq)
       | unifex::bulk_transform(
         [&](std::size_t index) noexcept {
@@ -136,7 +136,7 @@ TEST(bulk, bulk_substitute) {
                     unifex::bulk_schedule(sched, count),
                     [&](std::size_t& index) noexcept {
                         return unifex::via(
-                            unifex::schedule(sched),
+                            sched,
                             unifex::just(count - 1 - index)
                         );
                     }, unifex::par_unseq
@@ -216,7 +216,7 @@ TEST(bulk, bulk_substitute_cancellation) {
                         ),
                         [&](std::size_t& index) noexcept {
                             return unifex::via(
-                                unifex::schedule(sched),
+                                sched,
                                 unifex::just(index)
                             );
                         }, unifex::par_unseq
@@ -256,7 +256,7 @@ TEST(bulk, bulk_substitute_cancellation) {
                         ),
                         [&](std::size_t& index) noexcept {
                             return unifex::via(
-                                unifex::schedule(sched),
+                                sched,
                                 unifex::just(index)
                             );
                         }, unifex::par_unseq
